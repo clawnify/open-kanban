@@ -1,26 +1,69 @@
-import { Hono } from "hono";
-import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
+import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { query, get, run } from "./db";
 
-const app = new Hono();
+const app = new OpenAPIHono();
 
-// GET /api/lists — all lists with their cards
-app.get("/api/lists", (c) => {
+// ── Shared Schemas ─────────────────────────────────────────────────
+
+const ErrorSchema = z.object({ error: z.string() }).openapi("Error");
+const OkSchema = z.object({ ok: z.boolean() }).openapi("Ok");
+
+const ListSchema = z.object({
+  id: z.number().int(),
+  title: z.string(),
+  position: z.number().int(),
+  created_at: z.string(),
+}).openapi("List");
+
+const CardSchema = z.object({
+  id: z.number().int(),
+  list_id: z.number().int(),
+  title: z.string(),
+  description: z.string(),
+  position: z.number().int(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}).openapi("Card");
+
+const ListWithCardsSchema = ListSchema.extend({
+  cards: z.array(CardSchema),
+}).openapi("ListWithCards");
+
+const IdParam = z.object({ id: z.string().openapi({ description: "Resource ID (integer)" }) });
+
+// ── Lists ──────────────────────────────────────────────────────────
+
+const listLists = createRoute({
+  method: "get",
+  path: "/api/lists",
+  tags: ["Lists"],
+  summary: "Get all lists with their cards",
+  responses: {
+    200: {
+      description: "All lists with nested cards",
+      content: { "application/json": { schema: z.object({ lists: z.array(ListWithCardsSchema) }) } },
+    },
+    500: { description: "Server error", content: { "application/json": { schema: ErrorSchema } } },
+  },
+});
+
+app.openapi(listLists, async (c) => {
   try {
-    const lists = query<{
+    const lists = await query<{
       id: number;
       title: string;
       position: number;
       created_at: string;
     }>("SELECT id, title, position, created_at FROM lists ORDER BY position ASC");
 
-    const cards = query<{
+    const cards = await query<{
       id: number;
       list_id: number;
       title: string;
       description: string;
       position: number;
+      created_at: string;
+      updated_at: string;
     }>(
       "SELECT id, list_id, title, description, position, created_at, updated_at FROM cards ORDER BY position ASC"
     );
@@ -38,333 +81,323 @@ app.get("/api/lists", (c) => {
       cards: cardsByList.get(list.id) || [],
     }));
 
-    return c.json({ lists: result });
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return c.json({ error: message }, 500);
+    return c.json({ lists: result }, 200);
+  } catch (err: unknown) {
+    return c.json({ error: (err as Error).message }, 500);
   }
 });
 
-// POST /api/lists — create a list
-app.post("/api/lists", async (c) => {
-  try {
-    const body = await c.req.json<{ title: string }>();
-    if (!body.title || !body.title.trim()) {
-      return c.json({ error: "Title is required" }, 400);
-    }
+const createList = createRoute({
+  method: "post",
+  path: "/api/lists",
+  tags: ["Lists"],
+  summary: "Create a new list",
+  request: {
+    body: {
+      required: true,
+      content: { "application/json": { schema: z.object({ title: z.string().min(1) }) } },
+    },
+  },
+  responses: {
+    201: { description: "Created list", content: { "application/json": { schema: ListSchema } } },
+    400: { description: "Validation error", content: { "application/json": { schema: ErrorSchema } } },
+    500: { description: "Server error", content: { "application/json": { schema: ErrorSchema } } },
+  },
+});
 
-    const maxPos = get<{ max_pos: number }>(
+app.openapi(createList, async (c) => {
+  try {
+    const body = c.req.valid("json");
+    const title = body.title.trim();
+    if (!title) return c.json({ error: "Title is required" }, 400);
+
+    const maxPos = await get<{ max_pos: number }>(
       "SELECT COALESCE(MAX(position), -1) as max_pos FROM lists"
     );
     const nextPos = (maxPos?.max_pos ?? -1) + 1;
 
-    run("INSERT INTO lists (title, position) VALUES (?, ?)", body.title.trim(), nextPos);
-    const inserted = get(
+    await run("INSERT INTO lists (title, position) VALUES (?, ?)", title, nextPos);
+    const inserted = await get(
       "SELECT id, title, position, created_at FROM lists WHERE rowid = last_insert_rowid()"
     );
 
     return c.json(inserted, 201);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return c.json({ error: message }, 500);
+  } catch (err: unknown) {
+    return c.json({ error: (err as Error).message }, 500);
   }
 });
 
-// PUT /api/lists/:id — rename a list
-app.put("/api/lists/:id", async (c) => {
+const renameList = createRoute({
+  method: "put",
+  path: "/api/lists/{id}",
+  tags: ["Lists"],
+  summary: "Rename a list",
+  request: {
+    params: IdParam,
+    body: {
+      required: true,
+      content: { "application/json": { schema: z.object({ title: z.string().min(1) }) } },
+    },
+  },
+  responses: {
+    200: { description: "Updated list", content: { "application/json": { schema: ListSchema } } },
+    400: { description: "Validation error", content: { "application/json": { schema: ErrorSchema } } },
+    404: { description: "Not found", content: { "application/json": { schema: ErrorSchema } } },
+    500: { description: "Server error", content: { "application/json": { schema: ErrorSchema } } },
+  },
+});
+
+app.openapi(renameList, async (c) => {
   try {
-    const id = parseInt(c.req.param("id"), 10);
-    const body = await c.req.json<{ title: string }>();
-    if (!body.title || !body.title.trim()) {
-      return c.json({ error: "Title is required" }, 400);
-    }
+    const { id: idStr } = c.req.valid("param");
+    const id = parseInt(idStr, 10);
+    const body = c.req.valid("json");
+    const title = body.title.trim();
+    if (!title) return c.json({ error: "Title is required" }, 400);
 
-    const result = run("UPDATE lists SET title = ? WHERE id = ?", body.title.trim(), id);
-    if (result.changes === 0) {
-      return c.json({ error: "List not found" }, 404);
-    }
+    const result = await run("UPDATE lists SET title = ? WHERE id = ?", title, id);
+    if (result.changes === 0) return c.json({ error: "List not found" }, 404);
 
-    const updated = get("SELECT id, title, position, created_at FROM lists WHERE id = ?", id);
-    return c.json(updated);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return c.json({ error: message }, 500);
+    const updated = await get("SELECT id, title, position, created_at FROM lists WHERE id = ?", id);
+    return c.json(updated, 200);
+  } catch (err: unknown) {
+    return c.json({ error: (err as Error).message }, 500);
   }
 });
 
-// DELETE /api/lists/:id — delete a list (FK cascade deletes cards)
-app.delete("/api/lists/:id", (c) => {
+const deleteList = createRoute({
+  method: "delete",
+  path: "/api/lists/{id}",
+  tags: ["Lists"],
+  summary: "Delete a list and all its cards",
+  request: { params: IdParam },
+  responses: {
+    200: { description: "Success", content: { "application/json": { schema: OkSchema } } },
+    404: { description: "Not found", content: { "application/json": { schema: ErrorSchema } } },
+    500: { description: "Server error", content: { "application/json": { schema: ErrorSchema } } },
+  },
+});
+
+app.openapi(deleteList, async (c) => {
   try {
-    const id = parseInt(c.req.param("id"), 10);
-    const result = run("DELETE FROM lists WHERE id = ?", id);
+    const { id: idStr } = c.req.valid("param");
+    const id = parseInt(idStr, 10);
 
-    if (result.changes === 0) {
-      return c.json({ error: "List not found" }, 404);
-    }
+    const result = await run("DELETE FROM lists WHERE id = ?", id);
+    if (result.changes === 0) return c.json({ error: "List not found" }, 404);
 
-    return c.json({ ok: true });
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return c.json({ error: message }, 500);
+    return c.json({ ok: true }, 200);
+  } catch (err: unknown) {
+    return c.json({ error: (err as Error).message }, 500);
   }
 });
 
-// POST /api/cards — create a card
-app.post("/api/cards", async (c) => {
+// ── Cards ──────────────────────────────────────────────────────────
+
+const createCard = createRoute({
+  method: "post",
+  path: "/api/cards",
+  tags: ["Cards"],
+  summary: "Create a new card",
+  request: {
+    body: {
+      required: true,
+      content: { "application/json": { schema: z.object({
+        list_id: z.number().int(),
+        title: z.string().min(1),
+        description: z.string().optional(),
+      }) } },
+    },
+  },
+  responses: {
+    201: { description: "Created card", content: { "application/json": { schema: CardSchema } } },
+    400: { description: "Validation error", content: { "application/json": { schema: ErrorSchema } } },
+    404: { description: "List not found", content: { "application/json": { schema: ErrorSchema } } },
+    500: { description: "Server error", content: { "application/json": { schema: ErrorSchema } } },
+  },
+});
+
+app.openapi(createCard, async (c) => {
   try {
-    const body = await c.req.json<{
-      list_id: number;
-      title: string;
-      description?: string;
-    }>();
+    const body = c.req.valid("json");
+    const title = body.title.trim();
+    if (!title) return c.json({ error: "Title is required" }, 400);
 
-    if (!body.title || !body.title.trim()) {
-      return c.json({ error: "Title is required" }, 400);
-    }
-    if (!body.list_id) {
-      return c.json({ error: "list_id is required" }, 400);
-    }
+    const list = await get("SELECT id FROM lists WHERE id = ?", body.list_id);
+    if (!list) return c.json({ error: "List not found" }, 404);
 
-    const list = get("SELECT id FROM lists WHERE id = ?", body.list_id);
-    if (!list) {
-      return c.json({ error: "List not found" }, 404);
-    }
-
-    const maxPos = get<{ max_pos: number }>(
+    const maxPos = await get<{ max_pos: number }>(
       "SELECT COALESCE(MAX(position), -1) as max_pos FROM cards WHERE list_id = ?",
       body.list_id
     );
     const nextPos = (maxPos?.max_pos ?? -1) + 1;
 
-    run(
+    await run(
       "INSERT INTO cards (list_id, title, description, position) VALUES (?, ?, ?, ?)",
       body.list_id,
-      body.title.trim(),
+      title,
       (body.description || "").trim(),
       nextPos
     );
 
-    const inserted = get(
+    const inserted = await get(
       "SELECT id, list_id, title, description, position, created_at, updated_at FROM cards WHERE rowid = last_insert_rowid()"
     );
 
     return c.json(inserted, 201);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return c.json({ error: message }, 500);
+  } catch (err: unknown) {
+    return c.json({ error: (err as Error).message }, 500);
   }
 });
 
-// PUT /api/cards/:id — update a card
-app.put("/api/cards/:id", async (c) => {
-  try {
-    const id = parseInt(c.req.param("id"), 10);
-    const body = await c.req.json<{ title?: string; description?: string }>();
+const updateCard = createRoute({
+  method: "put",
+  path: "/api/cards/{id}",
+  tags: ["Cards"],
+  summary: "Update a card",
+  request: {
+    params: IdParam,
+    body: {
+      required: true,
+      content: { "application/json": { schema: z.object({
+        title: z.string().optional(),
+        description: z.string().optional(),
+      }) } },
+    },
+  },
+  responses: {
+    200: { description: "Updated card", content: { "application/json": { schema: CardSchema } } },
+    400: { description: "Validation error", content: { "application/json": { schema: ErrorSchema } } },
+    404: { description: "Not found", content: { "application/json": { schema: ErrorSchema } } },
+    500: { description: "Server error", content: { "application/json": { schema: ErrorSchema } } },
+  },
+});
 
-    const existing = get<{ id: number; title: string; description: string }>(
+app.openapi(updateCard, async (c) => {
+  try {
+    const { id: idStr } = c.req.valid("param");
+    const id = parseInt(idStr, 10);
+    const body = c.req.valid("json");
+
+    const existing = await get<{ id: number; title: string; description: string }>(
       "SELECT id, title, description FROM cards WHERE id = ?",
       id
     );
-    if (!existing) {
-      return c.json({ error: "Card not found" }, 404);
-    }
+    if (!existing) return c.json({ error: "Card not found" }, 404);
 
     const newTitle = body.title !== undefined ? body.title.trim() : existing.title;
     const newDesc = body.description !== undefined ? body.description.trim() : existing.description;
 
-    if (!newTitle) {
-      return c.json({ error: "Title cannot be empty" }, 400);
-    }
+    if (!newTitle) return c.json({ error: "Title cannot be empty" }, 400);
 
-    run(
+    await run(
       "UPDATE cards SET title = ?, description = ?, updated_at = datetime('now') WHERE id = ?",
       newTitle,
       newDesc,
       id
     );
 
-    const updated = get(
+    const updated = await get(
       "SELECT id, list_id, title, description, position, created_at, updated_at FROM cards WHERE id = ?",
       id
     );
 
-    return c.json(updated);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return c.json({ error: message }, 500);
+    return c.json(updated, 200);
+  } catch (err: unknown) {
+    return c.json({ error: (err as Error).message }, 500);
   }
 });
 
-// DELETE /api/cards/:id — delete a card
-app.delete("/api/cards/:id", (c) => {
+const deleteCard = createRoute({
+  method: "delete",
+  path: "/api/cards/{id}",
+  tags: ["Cards"],
+  summary: "Delete a card",
+  request: { params: IdParam },
+  responses: {
+    200: { description: "Success", content: { "application/json": { schema: OkSchema } } },
+    404: { description: "Not found", content: { "application/json": { schema: ErrorSchema } } },
+    500: { description: "Server error", content: { "application/json": { schema: ErrorSchema } } },
+  },
+});
+
+app.openapi(deleteCard, async (c) => {
   try {
-    const id = parseInt(c.req.param("id"), 10);
-    const result = run("DELETE FROM cards WHERE id = ?", id);
+    const { id: idStr } = c.req.valid("param");
+    const id = parseInt(idStr, 10);
 
-    if (result.changes === 0) {
-      return c.json({ error: "Card not found" }, 404);
-    }
+    const result = await run("DELETE FROM cards WHERE id = ?", id);
+    if (result.changes === 0) return c.json({ error: "Card not found" }, 404);
 
-    return c.json({ ok: true });
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return c.json({ error: message }, 500);
+    return c.json({ ok: true }, 200);
+  } catch (err: unknown) {
+    return c.json({ error: (err as Error).message }, 500);
   }
 });
 
-// POST /api/cards/:id/move — move a card to a different list/position
-app.post("/api/cards/:id/move", async (c) => {
+const moveCard = createRoute({
+  method: "post",
+  path: "/api/cards/{id}/move",
+  tags: ["Cards"],
+  summary: "Move a card to a different list and position",
+  request: {
+    params: IdParam,
+    body: {
+      required: true,
+      content: { "application/json": { schema: z.object({
+        target_list_id: z.number().int(),
+        position: z.number().int(),
+      }) } },
+    },
+  },
+  responses: {
+    200: { description: "Success", content: { "application/json": { schema: OkSchema } } },
+    400: { description: "Validation error", content: { "application/json": { schema: ErrorSchema } } },
+    404: { description: "Not found", content: { "application/json": { schema: ErrorSchema } } },
+    500: { description: "Server error", content: { "application/json": { schema: ErrorSchema } } },
+  },
+});
+
+app.openapi(moveCard, async (c) => {
   try {
-    const id = parseInt(c.req.param("id"), 10);
-    const body = await c.req.json<{ target_list_id: number; position: number }>();
+    const { id: idStr } = c.req.valid("param");
+    const id = parseInt(idStr, 10);
+    const body = c.req.valid("json");
 
-    if (body.target_list_id === undefined || body.position === undefined) {
-      return c.json({ error: "target_list_id and position are required" }, 400);
-    }
-
-    const card = get<{ id: number; list_id: number; position: number }>(
+    const card = await get<{ id: number; list_id: number; position: number }>(
       "SELECT id, list_id, position FROM cards WHERE id = ?",
       id
     );
-    if (!card) {
-      return c.json({ error: "Card not found" }, 404);
-    }
+    if (!card) return c.json({ error: "Card not found" }, 404);
 
-    const targetList = get("SELECT id FROM lists WHERE id = ?", body.target_list_id);
-    if (!targetList) {
-      return c.json({ error: "Target list not found" }, 404);
-    }
+    const targetList = await get("SELECT id FROM lists WHERE id = ?", body.target_list_id);
+    if (!targetList) return c.json({ error: "Target list not found" }, 404);
 
-    run(
+    await run(
       "UPDATE cards SET position = position + 1 WHERE list_id = ? AND position >= ? AND id != ?",
       body.target_list_id,
       body.position,
       id
     );
 
-    run(
+    await run(
       "UPDATE cards SET list_id = ?, position = ?, updated_at = datetime('now') WHERE id = ?",
       body.target_list_id,
       body.position,
       id
     );
 
-    return c.json({ ok: true });
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return c.json({ error: message }, 500);
+    return c.json({ ok: true }, 200);
+  } catch (err: unknown) {
+    return c.json({ error: (err as Error).message }, 500);
   }
 });
 
-// OpenAPI spec
-app.get("/openapi.json", (c) => {
-  return c.json({
-    openapi: "3.0.0",
-    info: { title: "Kanban App", version: "1.0.0" },
-    paths: {
-      "/api/lists": {
-        get: {
-          summary: "Get all lists with their cards",
-          responses: {
-            "200": {
-              description: "All lists with nested cards",
-              content: { "application/json": { schema: { type: "object", properties: {
-                lists: { type: "array", items: { allOf: [
-                  { $ref: "#/components/schemas/List" },
-                  { type: "object", properties: { cards: { type: "array", items: { $ref: "#/components/schemas/Card" } } } },
-                ] } },
-              } } } },
-            },
-          },
-        },
-        post: {
-          summary: "Create a new list",
-          requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } } } },
-          responses: { "201": { description: "Created list", content: { "application/json": { schema: { $ref: "#/components/schemas/List" } } } } },
-        },
-      },
-      "/api/lists/{id}": {
-        put: {
-          summary: "Rename a list",
-          parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
-          requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } } } },
-          responses: { "200": { description: "Updated list", content: { "application/json": { schema: { $ref: "#/components/schemas/List" } } } } },
-        },
-        delete: {
-          summary: "Delete a list and all its cards",
-          parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
-          responses: { "200": { description: "{ ok: true }" } },
-        },
-      },
-      "/api/cards": {
-        post: {
-          summary: "Create a new card",
-          requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: {
-            list_id: { type: "integer" },
-            title: { type: "string" },
-            description: { type: "string" },
-          }, required: ["list_id", "title"] } } } },
-          responses: { "201": { description: "Created card", content: { "application/json": { schema: { $ref: "#/components/schemas/Card" } } } } },
-        },
-      },
-      "/api/cards/{id}": {
-        put: {
-          summary: "Update a card",
-          parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
-          requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: {
-            title: { type: "string" },
-            description: { type: "string" },
-          } } } } },
-          responses: { "200": { description: "Updated card", content: { "application/json": { schema: { $ref: "#/components/schemas/Card" } } } } },
-        },
-        delete: {
-          summary: "Delete a card",
-          parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
-          responses: { "200": { description: "{ ok: true }" } },
-        },
-      },
-      "/api/cards/{id}/move": {
-        post: {
-          summary: "Move a card to a different list and position",
-          parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
-          requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: {
-            target_list_id: { type: "integer" },
-            position: { type: "integer" },
-          }, required: ["target_list_id", "position"] } } } },
-          responses: { "200": { description: "{ ok: true }" } },
-        },
-      },
-    },
-    components: {
-      schemas: {
-        List: { type: "object", properties: {
-          id: { type: "integer" },
-          title: { type: "string" },
-          position: { type: "integer" },
-          created_at: { type: "string" },
-        } },
-        Card: { type: "object", properties: {
-          id: { type: "integer" },
-          list_id: { type: "integer" },
-          title: { type: "string" },
-          description: { type: "string" },
-          position: { type: "integer" },
-          created_at: { type: "string" },
-          updated_at: { type: "string" },
-        } },
-      },
-    },
-  });
+// ── OpenAPI Doc ────────────────────────────────────────────────────
+
+app.doc("/openapi.json", {
+  openapi: "3.0.0",
+  info: { title: "Kanban App", version: "1.0.0", description: "A kanban board with lists and cards for task management." },
 });
-
-// Production: serve Vite build output
-if (process.env.NODE_ENV === "production") {
-  app.use("/*", serveStatic({ root: "./dist" }));
-  app.get("*", serveStatic({ root: "./dist", path: "index.html" }));
-}
-
-const port = parseInt(process.env.PORT || "3001", 10);
-console.log(`Kanban API running at http://localhost:${port}`);
-serve({ fetch: app.fetch, port });
 
 export default app;
