@@ -1,0 +1,33 @@
+{
+  "name": "Kanban App",
+  "description": "Kanban board with drag-and-drop cards between lists. Like Trello. Best for task boards, project management, workflow tracking, or any column-based organization.",
+  "framework": "preact+hono",
+  "files": [
+    "src/server/index.ts",
+    "src/server/db.ts",
+    "src/server/schema.sql",
+    "src/client/app.tsx",
+    "src/client/main.tsx",
+    "src/client/api.ts",
+    "src/client/types.ts",
+    "src/client/context.tsx",
+    "src/client/styles.css",
+    "src/client/hooks/use-board.ts",
+    "src/client/hooks/use-drag.ts",
+    "src/client/components/board.tsx",
+    "src/client/components/list.tsx",
+    "src/client/components/list-header.tsx",
+    "src/client/components/list-footer.tsx",
+    "src/client/components/card.tsx",
+    "src/client/components/card-menu.tsx",
+    "src/client/components/card-agent-actions.tsx",
+    "src/client/components/card-list.tsx",
+    "src/client/components/toolbar.tsx",
+    "src/client/components/confirm-bar.tsx",
+    "src/client/components/error-banner.tsx",
+    "package.json",
+    "vite.config.ts",
+    "tsconfig.json",
+    "index.html"
+  ]
+}
