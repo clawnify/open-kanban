@@ -4,6 +4,8 @@ A lightweight kanban board for building project management tools, task trackers,
 
 Built with **Preact + Hono + SQLite**. Ships with a dual-mode UI: one for humans (drag-and-drop cards, hover menus) and one for AI agents (explicit buttons, large targets).
 
+<img width="1024" height="587" alt="Image" src="https://github.com/user-attachments/assets/36aca14e-7cac-442f-b62b-f32af9592f2e" />
+
 ## What Is It?
 
 Clawnify Kanban App is a production-ready kanban board designed for the OpenClaw community. Think of it as an open-source Trello alternative — a project board you can self-host, customize, and embed in any SaaS product.
