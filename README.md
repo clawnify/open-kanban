@@ -93,20 +93,25 @@ src/
 
 Two entities with a parent-child relationship:
 
-```
-┌──────────────┐       ┌──────────────┐
-│    lists     │       │    cards     │
-├──────────────┤       ├──────────────┤
-│ id           │◄──┐   │ id           │
-│ title        │   │   │ list_id ─────┼───┘
-│ position     │   │   │ title        │
-│ created_at   │   │   │ description  │
-└──────────────┘   │   │ position     │
-                   │   │ created_at   │
-                   │   │ updated_at   │
-                   │   └──────────────┘
-                   │
-                ON DELETE CASCADE
+```mermaid
+erDiagram
+    lists ||--o{ cards : "contains"
+
+    lists {
+        text id PK
+        text title
+        integer position
+        text created_at
+    }
+    cards {
+        text id PK
+        text list_id FK "→ lists · ON DELETE CASCADE"
+        text title
+        text description
+        integer position
+        text created_at
+        text updated_at
+    }
 ```
 
 ```sql
