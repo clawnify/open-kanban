@@ -1,10 +1,10 @@
+<img src="readme-banner.png" alt="Open Kanban preview" width="100%" />
+
 # OpenClaw Kanban App: The Open-Source Trello Alternative for SaaS
 
 A lightweight kanban board for building project management tools, task trackers, and workflow apps. Part of the [OpenClaw](https://github.com/openclaw/openclaw) ecosystem. Zero cloud dependencies — runs locally with SQLite.
 
 Built with **Preact + Hono + SQLite**. Ships with a dual-mode UI: one for humans (drag-and-drop cards, hover menus) and one for AI agents (explicit buttons, large targets).
-
-<img width="1024" height="587" alt="Image" src="https://github.com/user-attachments/assets/36aca14e-7cac-442f-b62b-f32af9592f2e" />
 
 ## What Is It?
 
