@@ -2,7 +2,7 @@
 
 # OpenKanban: The Open-Source Trello Alternative for SaaS
 
-[![Deploy with Clawnify](https://app.clawnify.com/deploy-button.svg)](https://app.clawnify.com/deploy?repo=clawnify/open-kanban)
+[![Deploy with Clawnify](https://app.clawnify.com/deploy-button.svg)](https://app.clawnify.com/deploy?repo=clawnify/OpenKanban)
 
 A lightweight kanban board for building project management tools, task trackers, and workflow apps. Part of the [OpenClaw](https://github.com/openclaw/openclaw) ecosystem. Zero cloud dependencies — runs locally with SQLite.
 
@@ -28,7 +28,7 @@ Unlike Trello, Asana, or Monday.com, this runs entirely on your own infrastructu
 ## Quickstart
 
 ```bash
-git clone https://github.com/clawnify/open-kanban.git
+git clone https://github.com/clawnify/OpenKanban.git
 cd open-kanban
 pnpm install
 pnpm run dev
