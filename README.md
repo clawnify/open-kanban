@@ -1,6 +1,6 @@
-<img src="readme-banner.png" alt="Open Kanban preview" width="100%" />
+<img src="readme-banner.png" alt="OpenKanban preview" width="100%" />
 
-# OpenClaw Kanban App: The Open-Source Trello Alternative for SaaS
+# OpenKanban: The Open-Source Trello Alternative for SaaS
 
 [![Deploy with Clawnify](https://app.clawnify.com/deploy-button.svg)](https://app.clawnify.com/deploy?repo=clawnify/open-kanban)
 
@@ -10,7 +10,7 @@ Built with **Preact + Hono + SQLite**. Ships with a dual-mode UI: one for humans
 
 ## What Is It?
 
-Clawnify Kanban App is a production-ready kanban board designed for the OpenClaw community. Think of it as an open-source Trello alternative — a project board you can self-host, customize, and embed in any SaaS product.
+Clawnify OpenKanban is a production-ready kanban board designed for the OpenClaw community. Think of it as an open-source Trello alternative — a project board you can self-host, customize, and embed in any SaaS product.
 
 Unlike Trello, Asana, or Monday.com, this runs entirely on your own infrastructure with no API keys, no vendor lock-in, and no per-seat pricing. It provides a complete task management and workflow system. Create lists, add cards, drag between columns, and manage projects — all out of the box.
 

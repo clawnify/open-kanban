@@ -1,5 +1,5 @@
 {
-  "name": "Kanban App",
+  "name": "OpenKanban",
   "description": "Kanban board with drag-and-drop cards between lists. Like Trello. Best for task boards, project management, workflow tracking, or any column-based organization.",
   "framework": "preact+hono",
   "files": [

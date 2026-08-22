@@ -4,7 +4,7 @@ import { query, get, run } from "./db.js";
 type Env = { Bindings: { DB: D1Database } };
 
 const app = createApp<Env>({
-  title: "Kanban App",
+  title: "OpenKanban",
   version: "1.0.0",
   description: "A kanban board with lists and cards for task management.",
 });
